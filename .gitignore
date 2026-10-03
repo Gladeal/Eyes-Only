@@ -1,0 +1,16 @@
+# Build output
+.build/
+.swiftpm/
+build/
+build-ship/
+*.dmg
+*.zip
+Eyes Only Dev.app/
+
+# Local diagnostics logs
+results/
+
+# Private keys (the extension's signing key lives outside the project)
+*.pem
+
+.DS_Store

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Eyes Only",
+  "version": "0.3",
+  "description": "Lets the Eyes Only menu-bar app protect individual tabs. Reports your windows and tabs to the app on this Mac only; sends nothing over the network.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkiQS5V7+o92kBYnG5NWsZQvYc4iWrtzJRIDmDm4PfR3YTGDHX2aMYdXNmUfuclfZoW0f+eWGymMY/sKsUwkkznX7meqOevI9XEpCVMIf1Keq3ZAkzhHnZiMb21g3yOI04wsEj3afRsgAaTIhv5QAcApbN2AF67iR2IjfR9qb6ZJ1WgFc/1WEFP/NZpwofvsebwwSRbfAalMNvriHNt8Z8jTFZ6aXmCSC1gm+2EDZUk038nwwo+rlgNl2pQzXAZYkV/E//XYB1NyS2gOwcQBQl2OnoFgWiMjPkzx8DkcvoXkftYHIMzvLKHeZjof13ViD3DPU5hhBa8rx3lLDOnivPQIDAQAB",
+  "minimum_chrome_version": "110",
+  "permissions": ["nativeMessaging", "tabs"],
+  "background": { "service_worker": "background.js" },
+  "incognito": "spanning"
+}

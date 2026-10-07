@@ -45,6 +45,9 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.captureOnlyActiveTab = on
             self.reconcileTabs()
         }
+        w.shortcuts.setShortcut = { [weak self] action, s in self?.setShortcut(action, s) ?? false }
+        w.shortcuts.recording = { [weak self] on in if on { HotKeys.shared.removeAll() } else { self?.registerShortcuts() } }
+        w.shortcuts.failed = { HotKeys.shared.failed }
         w.browser.connected = { [weak self] in self?.browsers.values.filter { $0.pid != 0 }.map(\.name).sorted() ?? [] }
         return w
     }()
@@ -54,8 +57,8 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var pendingAutoWindows: Set<CGWindowID> = []
     var autoTimer: Timer?
     var autoPIDs: Set<pid_t>?                    // nil = recompute
-    /// Apps and sites from Settings temporarily off (menu: Pause Auto-Protection). Back on at every launch.
-    var autoPaused = false
+    /// Every cover off for now (menu: Pause Protection, or its shortcut). Back on at every launch.
+    var paused = false
     var lastList: [WindowInfo] = []
     var lastListAt = Date.distantPast
     var pauseWork: [CGWindowID: DispatchWorkItem] = [:]
@@ -123,6 +126,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
         updateStatusButton()
         rebuildMenu()
+        registerShortcuts()
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification,
                      NSWorkspace.didWakeNotification, NSWorkspace.didHideApplicationNotification,

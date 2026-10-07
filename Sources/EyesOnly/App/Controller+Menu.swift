@@ -25,9 +25,9 @@ extension Controller {
         guard let button = statusItem.button else { return }
         let (w, t) = protectedCounts
         let n = w + t
-        button.image = NSImage(systemSymbolName: n > 0 ? "eye.slash.fill" : "eye", accessibilityDescription: "Eyes Only")
+        button.image = NSImage(systemSymbolName: paused ? "pause.circle" : n > 0 ? "eye.slash.fill" : "eye", accessibilityDescription: "Eyes Only")
         button.image?.isTemplate = true
-        button.title = n > 0 ? " \(n)" : ""
+        button.title = paused ? " Paused" : n > 0 ? " \(n)" : ""
         #if !SHIP
         // Development build: marked in the menu bar, so it's never mistaken for the shared one.
         button.attributedTitle = NSAttributedString(string: " DEV" + button.title, attributes: [
@@ -35,7 +35,7 @@ extension Controller {
             .baselineOffset: 1])
         #endif
         button.imagePosition = .imageLeading
-        button.toolTip = n > 0 ? protectedSummary : "Eyes Only — nothing protected"
+        button.toolTip = paused ? "Eyes Only — paused: nothing is covered" : n > 0 ? protectedSummary : "Eyes Only — nothing protected"
     }
 
     // The menu opens instantly from the window list kept fresh in the background (app switches, launches,
@@ -68,10 +68,10 @@ extension Controller {
         let header = NSMenuItem(title: protectedSummary, action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
-        if autoPaused {
-            let paused = NSMenuItem(title: "Auto-protection paused", action: nil, keyEquivalent: "")
-            paused.isEnabled = false
-            menu.addItem(paused)
+        if paused {
+            let note = NSMenuItem(title: "Paused — nothing is covered", action: nil, keyEquivalent: "")
+            note.isEnabled = false
+            menu.addItem(note)
         }
         if !hasPermission {
             let p = NSMenuItem(title: "Needs Screen Recording permission (System Settings → Privacy & Security)", action: nil, keyEquivalent: "")
@@ -123,11 +123,14 @@ extension Controller {
         settingsItem.target = self
         settingsItem.image = symbol("gear")   // the gear Apple's menu uses for System Settings…
         menu.addItem(settingsItem)
-        if hasManualProtection { add("Stop All", #selector(unprotectTicked)).image = symbol("stop.circle") }
-        if hasAutoRules {
-            let pause = add(autoPaused ? "Resume Auto-Protection" : "Pause Auto-Protection", #selector(toggleAutoPause))
-            pause.image = symbol(autoPaused ? "play.circle" : "pause.circle")
-            pause.toolTip = "The apps and sites you set to always protect in Settings. Your lists are kept."
+        if hasManualProtection {
+            let stop = add("Stop All", #selector(unprotectTicked))
+            stop.image = symbol("stop.circle")
+        }
+        if hasManualProtection || hasAutoRules || !sessions.isEmpty || paused {
+            let pause = add(paused ? "Resume Protection" : "Pause Protection", #selector(togglePause))
+            pause.image = symbol(paused ? "play.circle" : "pause.circle")
+            pause.toolTip = "Takes every cover off until you resume — windows, tabs, apps and sites. What you protect is kept."
         }
         let quit = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
@@ -209,6 +212,11 @@ extension Controller {
 
     @objc func toggleWindow(_ sender: NSMenuItem) {
         guard let id = (sender.representedObject as? NSNumber)?.uint32Value else { return }
+        toggleWindow(id)
+    }
+
+    /// Whole-window protection on or off. `pid`: for a window that isn't in the menu's list yet (shortcut).
+    func toggleWindow(_ id: CGWindowID, pid: pid_t? = nil) {
         if let s = sessions[id], s.tabDriven {
             s.tabDriven = false   // now the whole window is protected, whatever tab is active
             s.setSuspended(false)
@@ -220,8 +228,8 @@ extension Controller {
             sessions[id] = nil
             sessionsChanged()
             reconcileTabs()       // it may still have protected tabs
-        } else if let w = candidates.first(where: { $0.windowID == id }) {
-            let s = Session(window: w, owner: self)
+        } else if let s = candidates.first(where: { $0.windowID == id }).map({ Session(window: $0, owner: self) })
+                    ?? pid.map({ Session(windowID: id, pid: $0, name: "\(NSRunningApplication(processIdentifier: $0)?.localizedName ?? "?") — window", owner: self) }) {
             s.keepOnTop = keepOnTop
             sessions[id] = s
             sessionsChanged()

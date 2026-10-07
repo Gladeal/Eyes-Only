@@ -24,10 +24,11 @@ extension Session {
             log(String(format: "window back in the window list after %.0f ms", Date().timeIntervalSince(since) * 1000))
             missingSince = nil
         }
-        if suspended {   // a browser window whose active tab isn't protected
+        if suspended || paused {   // a browser window whose active tab isn't protected, or everything paused
             if o.visible { o.hide() }
             if o.proxyFrame != nil { o.placeProxy(nil) }
             updateProfile(.hidden)
+            stopScreenFeed()
             return
         }
         // Refresh the separate Stage Manager surface before checking target visibility; WindowServer

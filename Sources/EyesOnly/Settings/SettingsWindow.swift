@@ -2,12 +2,13 @@ import AppKit
 
 @MainActor
 final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
-    enum Pane: Int { case general, apps, browser }
+    enum Pane: Int { case general, apps, browser, shortcuts }
     let window: NSWindow
     let general = GeneralPane()
     let apps = AppsPane()
     let sites = SitesPane()
     let browser = BrowserPane()
+    let shortcuts = ShortcutsPane()
     private var panes: [NSView] = []
     private var current: NSView?
     /// The native settings toolbar (icon tabs), like Apple's own apps.
@@ -15,6 +16,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         (.init("general"), "General", "gear"),
         (.init("apps"), "Apps", "square.grid.2x2"),
         (.init("browser"), "Browser", "globe"),
+        (.init("shortcuts"), "Shortcuts", "keyboard"),
     ]
 
     override init() {
@@ -25,7 +27,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
         window.collectionBehavior = [.moveToActiveSpace]
         window.delegate = self
         // Browser: the extension on top, the protected sites under it.
-        panes = [page(general.view), page(apps.view), page(browser.view, separator(), sites.view)]
+        panes = [page(general.view), page(apps.view), page(browser.view, separator(), sites.view), page(shortcuts.view)]
         let toolbar = NSToolbar(identifier: "settings")
         toolbar.delegate = self
         toolbar.displayMode = .iconAndLabel
@@ -37,7 +39,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSToolbarDelegate {
 
     func show(_ pane: Pane? = nil) {
         if let pane { select(pane.rawValue) }
-        general.reload(); apps.reload(); sites.reload(); browser.start()
+        general.reload(); apps.reload(); sites.reload(); shortcuts.reload(); browser.start()
         present(window)
     }
 

@@ -119,14 +119,11 @@ extension Controller {
         if changed { sessionsChanged() }
     }
 
-    /// Site rules in effect (none while auto-protection is paused).
-    var activeSiteRules: [String] { autoPaused ? [] : siteRules }
-
     func tabProtected(_ pid: pid_t, _ t: BrowserTab) -> Bool {
-        protectedTabs.contains(BrowserKey(pid: pid, id: t.id)) || activeSiteRules.contains { siteMatches(t.url, $0) }
+        protectedTabs.contains(BrowserKey(pid: pid, id: t.id)) || siteRules.contains { siteMatches(t.url, $0) }
     }
 
-    func siteRule(for t: BrowserTab) -> String? { activeSiteRules.first { siteMatches(t.url, $0) } }
+    func siteRule(for t: BrowserTab) -> String? { siteRules.first { siteMatches(t.url, $0) } }
 
     /// Browser windows that get captured: only those with a protected tab (ticked, or on a protected site) —
     /// paused while another tab is active. Nothing else in the browser is ever captured.

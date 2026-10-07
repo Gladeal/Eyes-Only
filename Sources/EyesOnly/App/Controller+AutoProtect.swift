@@ -41,7 +41,7 @@ extension Controller {
     }
 
     func checkAutoApps() {
-        guard !autoApps.isEmpty, !autoPaused else { return }
+        guard !autoApps.isEmpty else { return }
         if autoPIDs == nil { recomputeAutoPIDs() }
         guard let pids = autoPIDs, !pids.isEmpty else { return }
         // The tick's own window list when it's fresh; a request of our own only when nothing else is running.
@@ -94,20 +94,6 @@ extension Controller {
         diagnosticsLog("STOP. Unprotected all ticked windows and tabs")
         sessionsChanged()
         reconcileTabs()   // tab windows still needed for site rules stay; the rest stop
-    }
-
-    /// Apps and sites from Settings, off or back on — the lists themselves are kept.
-    @objc func toggleAutoPause() {
-        autoPaused.toggle()
-        diagnosticsLog(autoPaused ? "AUTO protection paused" : "AUTO protection resumed")
-        if autoPaused {
-            for (id, s) in sessions where s.autoApp { s.stop(); sessions[id] = nil }
-            sessionsChanged()
-        } else {
-            checkAutoApps()
-        }
-        reconcileTabs()
-        rebuildMenu()
     }
 
     var hasManualProtection: Bool { sessions.values.contains { !$0.tabDriven && !$0.autoApp } || !protectedTabs.isEmpty }

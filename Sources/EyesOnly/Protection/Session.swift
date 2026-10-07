@@ -145,7 +145,7 @@ final class Session {
         let o = overlay
         o.place(cocoaRect(state.bounds))
         o.keepOnTop = true   // automatic stacking (keep-on-top off) decides from the first check on
-        if state.onScreen && !suspended { o.show(above: windowID) }
+        if state.onScreen && !suspended && !paused { o.show(above: windowID) }
         running = true
         profile = .active
         startedAt = mach_absolute_time()
@@ -200,6 +200,9 @@ final class Session {
         log("STOP. The window is no longer protected.")
     }
 
+    /// Everything is paused (menu or shortcut): no cover anywhere until resumed.
+    var paused: Bool { owner?.paused == true }
+
     /// A thumbnail of this window is showing in the Stage Manager strip.
     var inStrip: Bool { overlay.proxyFrame != nil || profile == .thumbnail }
 
@@ -234,7 +237,7 @@ final class Session {
             logDetail("TAB: active tab not protected → cover paused")
         } else {
             logDetail("TAB: protected tab active → cover on")
-            guard running, let state = windowInfo(windowID), state.onScreen else { return }
+            guard running, !paused, let state = windowInfo(windowID), state.onScreen else { return }
             overlay.place(cocoaRect(state.bounds))
             overlay.show(above: windowID)
             owner?.heat(1.5)

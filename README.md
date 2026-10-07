@@ -28,7 +28,8 @@ Useful when you share or record your screen and don't want a chat, an inbox, a d
 - **Protect a window** — tick it in the menu-bar menu. Several at once, on any display.
 - **Protect apps** — every window of a chosen app, automatically, whenever it opens (Settings → Apps).
 - **Protect tabs and sites** in Chrome, Edge, Brave, Arc, Vivaldi and Chromium — tick a tab in the menu, or add a site (`mail.google.com`, `example.com/path`) to protect every tab showing it. Needs the small extension in [`BrowserExtension/`](BrowserExtension). Safari isn't supported.
-- **Pause / resume** automatic protection, **Stop All** for the ones you ticked.
+- **Pause / resume** all protection at once, **Stop All** for the ones you ticked.
+- **Keyboard shortcuts** for pausing, protecting the front window or tab, and more — set your own in Settings → Shortcuts.
 - **Stage Manager**, Mission Control, full-screen Spaces and window snapping are handled; in captures, a protected window's Stage Manager thumbnail and Mission Control tile are black too.
 - **Live previews** (on by default): to you, a protected window's Stage Manager thumbnail, Mission Control tile and their animations look normal; captures still show them black. Costs some CPU while a protected window is in the strip or Mission Control is open — turn it off in Settings → General.
 - **Open at login**, and an optional detailed diagnostics log for troubleshooting.

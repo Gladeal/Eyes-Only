@@ -19,6 +19,14 @@ enum Settings {
         get { UserDefaults.standard.object(forKey: "captureOnlyActiveTab") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "captureOnlyActiveTab") }
     }
+    static func shortcut(_ action: ShortcutAction) -> Shortcut? {
+        UserDefaults.standard.data(forKey: "shortcut." + action.rawValue).flatMap { try? JSONDecoder().decode(Shortcut.self, from: $0) }
+    }
+    static func setShortcut(_ action: ShortcutAction, _ shortcut: Shortcut?) {
+        let key = "shortcut." + action.rawValue
+        if let shortcut, let data = try? JSONEncoder().encode(shortcut) { UserDefaults.standard.set(data, forKey: key) }
+        else { UserDefaults.standard.removeObject(forKey: key) }
+    }
     static var apps: [String] {   // bundle identifiers
         get { UserDefaults.standard.stringArray(forKey: appsKey) ?? [] }
         set { UserDefaults.standard.set(newValue, forKey: appsKey) }

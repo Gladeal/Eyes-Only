@@ -172,7 +172,7 @@ extension Session {
     /// up now, floating, instead of at the next check. Logs which came first — the window or the announcement.
     func spaceChanged() {
         let o = overlay
-        guard running, !suspended, let state = windowInfo(windowID) else { return }
+        guard running, !suspended, !paused, let state = windowInfo(windowID) else { return }
         let coverAgo = o.visible ? String(format: "cover already up for %.0f ms", Date().timeIntervalSince(shownAt) * 1000) : "cover not up"
         guard state.onScreen else { logDetail("SPACE switched: window not on this Space (\(coverAgo))"); return }
         if !o.visible {

@@ -20,10 +20,28 @@ extension Session {
         //    Held during geometry animation; once settled, retain the 2 s safeguard.
         let gaps = frame.gaps
         let content = geometry.pixelRect.integral
-        let empty = gaps[0] >= Int(content.width) / 2 && gaps[1] >= Int(content.height) / 2 &&
+        // A dialog attached to the window (a sheet — e.g. Slack's "Upload from your computer") is captured
+        // together with it: both windows' captures are one picture of the two. Each copy shows its own part.
+        let ownPart = attachedWindowsCrop(geometry)
+        // Seen on a 1× external display: macOS delivers every other frame of a window 1 px larger than it is,
+        // with a transparent pixel column on the left and/or row at the bottom, and the page squeezed by a
+        // pixel on that side. Shown, they make the page jump back and forth by a pixel (a "wobble" while the
+        // cursor moves). Keep the previous frame instead; the next normal one is a frame away.
+        let windowPixels = CGSize(width: (o.frame.width * geometry.scaleFactor).rounded(),
+                                  height: (o.frame.height * geometry.scaleFactor).rounded())
+        let extra = (w: content.width - windowPixels.width, h: content.height - windowPixels.height)
+        feedTrace(String(format: "window frame %.0f×%.0f px, gaps L%d T%d R%d B%d%@", content.width, content.height,
+                         gaps[0], gaps[1], gaps[2], gaps[3], screenFeedShowing ? " (screen feed showing)" : ""))
+        if ownPart == nil, o.hasContents, (1...2).contains(extra.w), (1...2).contains(extra.h),
+           gaps.allSatisfy({ $0 <= 2 }), gaps.contains(where: { $0 > 0 }) {
+            onePixelOffHeld += 1
+            return
+        }
+        let empty = ownPart == nil && gaps[0] >= Int(content.width) / 2 && gaps[1] >= Int(content.height) / 2 &&
                     gaps[2] >= Int(content.width) / 2 && gaps[3] >= Int(content.height) / 2
-        let offset = !empty && gaps.contains(where: { $0 > 2 })
+        let offset = ownPart == nil && !empty && gaps.contains(where: { $0 > 2 })
         var shown = geometry
+        shown.crop = ownPart
         if empty || offset {
             let now = Date()
             if unusableBurstStart == nil { unusableBurstStart = now; skippedEmpty = 0; skippedOffset = 0; shownCropped = 0; offsetMax = [0, 0, 0, 0] }
@@ -45,12 +63,17 @@ extension Session {
                        skippedEmpty, skippedOffset, shownCropped, Date().timeIntervalSince(start) * 1000, offsetMax[0], offsetMax[1], offsetMax[2], offsetMax[3]))
             unusableBurstStart = nil; offsetStart = nil
         }
-        if shown.crop == nil { heldSince = nil }
-        o.setFrameContents(surface, geometry: shown)
-        if !empty, !offset, let color = frame.fill { o.setFill(color) }
+        if shown.crop == nil || ownPart != nil { heldSince = nil }
+        if !screenFeedShowing {   // otherwise the screen feed has the picture
+            feedTrace("  → window frame shown" + (shown.crop != nil ? " (cropped)" : ""))
+            o.setFrameContents(surface, geometry: shown)
+            o.setCopyRounded(true)
+            compareHandover(surface, shown)
+            if !empty, !offset, let color = frame.fill { o.setFill(color) }
+        }
         // Measure the corner once; first full-resolution frame with ≥ 3 readable corners is final.
         let fullResolution = geometry.contentScale >= 0.99
-        if !radiusFinal, !radiusMeasured || (fullResolution && Date() >= nextRadiusAttempt) {
+        if ownPart == nil, !radiusFinal, !radiusMeasured || (fullResolution && Date() >= nextRadiusAttempt) {
             nextRadiusAttempt = Date().addingTimeInterval(0.5)
             if let (fraction, detail, readable) = measureCornerFraction(surface, geometry: geometry) {
                 let naturalWidth = geometry.contentRect.width / geometry.contentScale
@@ -66,7 +89,7 @@ extension Session {
             logDetail("FRAME \(geometry.description); mirror window \(o.frame.size) pt")
             // contentRect / contentScale is the window's real size in points, even when ScreenCaptureKit
             // shrank it to fit our buffer (Stage Manager reports a thumbnail frame on screen).
-            if geometry.contentScale > 0, geometry.contentRect.width > 0 {
+            if ownPart == nil, geometry.contentScale > 0, geometry.contentRect.width > 0 {
                 let natural = CGSize(width: (geometry.contentRect.width / geometry.contentScale).rounded(),
                                      height: (geometry.contentRect.height / geometry.contentScale).rounded())
                 captureScale = geometry.scaleFactor
@@ -126,6 +149,38 @@ extension Session {
         if readings.isEmpty { radiusPx = fallbackPx; note = " → no readable corner, using 32 pt" }
         else if radiusPx > maxRadiusPx { radiusPx = fallbackPx; note = " → above 40 pt cap, using 32 pt" }
         return (CGFloat(radiusPx) / content.width, detail.joined(separator: " ") + note, readings.count)
+    }
+
+    /// When the picture is bigger than the window because windows attached to it are in it too: this window's
+    /// part of it, in pixels. The picture is exactly the area this window and the attached ones cover together,
+    /// so they're found by that: the app's other windows whose union with this one has the picture's size.
+    func attachedWindowsCrop(_ g: FrameGeometry) -> CGRect? {
+        guard g.contentScale > 0, g.contentRect.width > 0, let list = owner?.lastList else { return nil }
+        let picture = CGSize(width: g.contentRect.width / g.contentScale, height: g.contentRect.height / g.contentScale)
+        let own = cocoaRect(overlay.frame)   // top-left origin, like the window list
+        guard picture.width > own.width + 4 || picture.height > own.height + 4 else {
+            if attachedLogged { attachedLogged = false; logDetail("ATTACHED windows gone from the capture") }
+            return nil
+        }
+        func fits(_ u: CGRect) -> Bool { abs(u.width - picture.width) <= 2 && abs(u.height - picture.height) <= 2 }
+        // Real windows only (a dialog is one; the same size limit as for always-protected apps): a captured
+        // picture a few points taller than the window for a moment once matched some sliver of a window.
+        let others = list.filter { $0.pid == targetPID && $0.id != windowID && $0.layer == 0 &&
+                                   $0.bounds.width >= 120 && $0.bounds.height >= 80 && $0.bounds.intersects(own.insetBy(dx: -40, dy: -40)) }
+        var matched = others.filter { fits(own.union($0.bounds)) }.prefix(1).map(\.bounds)
+        if matched.isEmpty, fits(others.reduce(own, { $0.union($1.bounds) })) { matched = others.map(\.bounds) }
+        guard !matched.isEmpty else { return nil }
+        let union = matched.reduce(own) { $0.union($1) }
+        let content = g.pixelRect
+        let px = content.width / picture.width
+        if !attachedLogged {
+            attachedLogged = true
+            logDetail(String(format: "ATTACHED windows captured with this one (picture %.0f×%.0f pt; attached %@) → showing this window's part at %.0f,%.0f",
+                             picture.width, picture.height, matched.map { String(format: "%.0f×%.0f at %.0f,%.0f", $0.width, $0.height, $0.minX, $0.minY) }.joined(separator: ", "),
+                             own.minX - union.minX, own.minY - union.minY))
+        }
+        return CGRect(x: content.minX + (own.minX - union.minX) * px, y: content.minY + (own.minY - union.minY) * px,
+                      width: own.width * px, height: own.height * px).intersection(content)
     }
 
     func failure(_ message: String) -> NSError { NSError(domain: "EyesOnly", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }

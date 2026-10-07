@@ -23,8 +23,8 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// re-matching then lost the window and restarted its capture on every resize.
     var tabWindowMap: [BrowserKey: CGWindowID] = [:]
     var siteRules = Settings.sites
-    var thumbnailCutouts = Settings.thumbnailCutouts
     var captureOnlyActiveTab = Settings.captureOnlyActiveTab
+    var livePreviews = Settings.livePreviews
     /// Capture handles of browser windows whose capture was stopped (active-tab-only mode): restarting with
     /// one skips the window lookup, so the picture comes back sooner.
     var captureHandles: [CGWindowID: SCWindow] = [:]
@@ -32,7 +32,7 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let w = SettingsWindow()
         w.general.isKeepOnTop = { [weak self] in self?.keepOnTop ?? false }
         w.general.setKeepOnTop = { [weak self] on in self?.setKeepOnTop(on) }
-        w.general.setCutouts = { [weak self] on in self?.thumbnailCutouts = on }
+        w.general.setLivePreviews = { [weak self] on in self?.livePreviews = on }
         w.apps.ticked = { [weak self] in self?.autoApps ?? [] }
         w.apps.setTicked = { [weak self] id, on in self?.setAutoApp(id, on) }
         w.sites.onChange = { [weak self] in
@@ -150,6 +150,22 @@ final class Controller: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 }
             })
         }
+        // Float a protected app's covers the moment it becomes active.
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil,
+                                                     queue: .main) { [weak self] note in
+            let pid = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
+            MainActor.assumeIsolated {
+                guard let self, let pid else { return }
+                for s in self.sessions.values where s.targetPID == pid { s.appActivated() }
+            }
+        })
+        #if !SHIP
+        // Development builds (testing): cover a window the moment its Space becomes active.
+        workspaceObservers.append(center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil,
+                                                     queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.sessions.values.forEach { $0.spaceChanged() } }
+        })
+        #endif
         workspaceObservers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                                          object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {

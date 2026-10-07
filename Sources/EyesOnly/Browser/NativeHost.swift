@@ -73,6 +73,8 @@ func runNativeHost() -> Never {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
             } == 0
             if !ok { close(fd); sleep(1); continue }   // the app isn't running (yet)
+            let connectedAt = Date()
+            var received = 0
             let hello = try! JSONSerialization.data(withJSONObject: ["type": "hello", "pid": Int(browserPID)])
             _ = writeAll(fd, hello + Data([10]))
             lock.lock(); shared.sock = fd; let state = shared.lastState; lock.unlock()
@@ -82,6 +84,7 @@ func runNativeHost() -> Never {
             while true {
                 let n = read(fd, &chunk, chunk.count)
                 if n <= 0 { break }
+                received += n
                 buffer.append(contentsOf: chunk[0..<n])
                 while let nl = buffer.firstIndex(of: 10) {
                     let line = buffer[buffer.startIndex..<nl]
@@ -90,6 +93,11 @@ func runNativeHost() -> Never {
                 }
             }
             lock.lock(); if shared.sock == fd { close(fd); shared.sock = -1 }; lock.unlock()
+            // Closed at once without a word: the app refused us — it's another build of Eyes Only (updated or
+            // moved since the browser started this relay). Quit: the extension reconnects in a few seconds, and
+            // the browser then starts the current build's relay. (Retrying here spun thousands of times a second.)
+            if received == 0, Date().timeIntervalSince(connectedAt) < 2 { exit(0) }
+            sleep(1)
         }
     }
 

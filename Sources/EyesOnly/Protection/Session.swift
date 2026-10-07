@@ -50,11 +50,17 @@ final class Session {
 
     // Unusable-frame handling
     var skippedEmpty = 0, skippedOffset = 0, shownCropped = 0
+    var onePixelOffHeld = 0   // since the last STATS line
     var offsetMax: [Int] = [0, 0, 0, 0]
     var offsetStart: Date?
     var unusableBurstStart: Date?
     var heldSince: Date?
     var clickAt: UInt64 = 0
+    var attachedLogged = false
+    #if !SHIP
+    var shownAt = Date.distantPast   // when the cover last went up (Space-switch timing)
+    #endif
+    var missingSince: Date?   // not in the window list (closed, or moving into a full-screen Space)
 
     // Exposure / stacking
     var exposedSince: UInt64 = 0
@@ -69,6 +75,25 @@ final class Session {
     var stackAttemptAt = Date.distantPast
     var stackFallbackUntil = Date.distantPast
     var stackRetried = false
+    // Screen feed: Stage Manager / Mission Control animations and live previews (Session+ScreenFeed)
+    var screenFeed: SCStream?
+    var screenFeedSink: FrameSink?
+    let screenFeedQueue = DispatchQueue(label: "EyesOnly.screenFeed", qos: .userInteractive)
+    var screenFeedStarting = false
+    var screenFeedDisplay = CGRect.zero   // CoreGraphics global points
+    var screenFeedScale: CGFloat = 2
+    var screenFeedFps = 2
+    var screenFeedConfigBusy = false
+    var screenFeedHotSince: UInt64 = 0    // 0: idle
+    var screenFeedShown = 0
+    var feedTraceStart: UInt64 = 0
+    var feedTraceState = ""
+    var feedTraceMissionControl = false
+    var lastFeedSurface: IOSurface?
+    var lastFeedCrop = CGRect.zero
+    var handoverPending = false
+    var hotFrames = 0
+    var lastFeedProxyFrame: NSRect?
 
     // Corner radius
     var radiusMeasured = false
@@ -169,6 +194,7 @@ final class Session {
         profileWork?.cancel(); profileWork = nil; profileScheduleGeneration += 1
         if let stream { Task { try? await stream.stopCapture() } }
         stream = nil; sink = nil
+        stopScreenFeed()
         pendingConfig = nil; configInFlight = false
         overlay.close()
         log("STOP. The window is no longer protected.")

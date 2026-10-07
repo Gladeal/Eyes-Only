@@ -12,8 +12,17 @@ extension Session {
         checkForStall()
         // From the tick's own window list; ask WindowServer separately only when the window isn't on screen
         // (to tell "closed" from "hidden / other Space").
+        // Missing from the window list isn't proof it closed: while a window moves into a full-screen Space,
+        // WindowServer leaves it out for a moment, and ending protection on that one miss dropped it for good.
+        // The cover stays where it was until the window is back, or has been gone a while.
         guard let state = list.window(id) ?? windowInfo(id) else {
-            owner.sessionEnded(self); return
+            if missingSince == nil { missingSince = Date(); log("window missing from the window list → waiting before treating it as closed") }
+            if Date().timeIntervalSince(missingSince!) > 1.5 { owner.sessionEnded(self) }
+            return
+        }
+        if let since = missingSince {
+            log(String(format: "window back in the window list after %.0f ms", Date().timeIntervalSince(since) * 1000))
+            missingSince = nil
         }
         if suspended {   // a browser window whose active tab isn't protected
             if o.visible { o.hide() }
@@ -24,7 +33,6 @@ extension Session {
         // Refresh the separate Stage Manager surface before checking target visibility; WindowServer
         // can omit the target while the preview is already animating into view.
         updateStageManagerPreview(o, id, list)
-        updateProxyHoles(o, list)
         if o.aboveSystemUI != missionControlOpen {
             o.aboveSystemUI = missionControlOpen
             if o.visible { o.backing.orderFrontRegardless(); o.mirror.orderFrontRegardless() }
@@ -47,7 +55,8 @@ extension Session {
         }
         if o.mainHidden { o.setMainHidden(false) }
         let f = cocoaRect(state.bounds)
-        if f != o.frame {
+        let moving = f != o.frame
+        if moving {
             owner.heat(1.0)   // moving / animating: track at full rate
             placeCount += 1; lastPlace = Date(); targetGeometryChangedAt = lastPlace
             // A click can be followed by several seconds of offset frames during a Stage Manager
@@ -58,7 +67,12 @@ extension Session {
             logDetail("MOVED \(placeCount) steps, settled at \(f.size) pt")
             placeCount = 0
         }
-        if !o.visible { logDetail("SHOW") }
+        if !o.visible {
+            logDetail("SHOW")
+            #if !SHIP
+            shownAt = Date()
+            #endif
+        }
         let screenScale = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: f.midX, y: f.midY)) })?.backingScaleFactor ?? displayScale
         if screenScale != displayScale {
             displayScale = screenScale
@@ -67,13 +81,21 @@ extension Session {
         }
         o.place(f)
         o.show(above: id)
+        updateScreenFeed(f, moving: moving)
         // Show the copy only where the window is readable: in front (including while it grows out of the
         // strip) or at full size in the background. A Stage Manager thumbnail or Mission Control tile stays
         // black locally as well. Never stretch a held frame to more than twice its size: at first focus the
         // only frame is the strip thumbnail, and blown up to the full window it looked broken.
         let front = NSWorkspace.shared.frontmostApplication?.processIdentifier == targetPID
         let shrunk = naturalSize.width > 0 && f.width < naturalSize.width * 0.9
-        let copyVisible = !missionControlOpen && (front || !shrunk) && o.shownContentWidth * 2 >= f.width
+        var copyVisible = !missionControlOpen && (front || !shrunk) && o.shownContentWidth * 2 >= f.width
+        // The screen feed shows exactly what's on screen there, whatever its size: no reason for black while
+        // the window grows out of the strip or flies back from Mission Control. In Mission Control and the
+        // strip themselves, only with live previews on (otherwise black locally).
+        if screenFeedShowing {
+            if missionControlOpen { copyVisible = owner.livePreviews }
+            else if front || screenFeedLive { copyVisible = true }
+        }
         if copyVisible != o.copyVisible {
             o.setCopyVisible(copyVisible)
             logDetail(String(format: "COPY %@ (front %@, window %.0f pt wide, frame %.0f pt wide%@)", copyVisible ? "shown" : "black locally",
@@ -81,6 +103,7 @@ extension Session {
         }
         if !keepOnTop, !o.aboveSystemUI { autoStack(o, above: id) }
         ensureCoverOnScreen(o, list)
+        traceState(o)
         updateProfile(desiredProfile(onScreen: f.size))
         let elapsed = Date().timeIntervalSince(lastStatsTime)
         if elapsed >= 2 {
@@ -88,9 +111,12 @@ extension Session {
             let age = frameCount > 0 ? frameAgeTotal / Double(frameCount) : 0
             let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
             let dropped = sink?.takeDroppedCount() ?? 0
+            let skipped = sink?.takeSkippedCounts() ?? ""
             let line = String(format: "mirror %.0f fps · profile %@ · frame age avg %.1f / max %.0f ms · longest gap %.0f ms · dropped %d · main-thread tick max %.1f ms · window %.0f×%.0f pt · front: %@",
                               fps, profile.rawValue, age, frameAgeMax, frameGapMax, dropped, tickMax, f.width, f.height, front)
-            logDetail("STATS " + line + (frameCount == 0 ? " · NO NEW FRAMES" : ""))
+            logDetail("STATS " + line + (frameCount == 0 ? " · NO NEW FRAMES" : "") + (skipped.isEmpty ? "" : " · not pictures: " + skipped) +
+                      (onePixelOffHeld > 0 ? " · held \(onePixelOffHeld) one-pixel-off frames" : ""))
+            onePixelOffHeld = 0
             frameCount = 0; frameAgeTotal = 0; frameAgeMax = 0; frameGapMax = 0; tickMax = 0; lastStatsTime = Date()
         }
         tickMax = max(tickMax, machMilliseconds(mach_absolute_time() - tickStart))

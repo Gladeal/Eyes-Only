@@ -5,6 +5,7 @@ final class BrowserBridge {
     private let queue = DispatchQueue(label: "EyesOnly.bridge")
     private var listenSource: DispatchSourceRead?
     private var clients: [Int32: (source: DispatchSourceRead, buffer: Data)] = [:]
+    private var refused = 0, lastRefusalLogged = Date.distantPast
     var onMessage: ((Int32, [String: Any]) -> Void)?
     var onDisconnect: ((Int32) -> Void)?
 
@@ -51,8 +52,13 @@ final class BrowserBridge {
 
     private func add(_ fd: Int32) {
         guard peerIsOurRelay(fd) else {
-            diagnosticsLog("BROWSER bridge: refused a connection from another program")
-            close(fd); return
+            close(fd)
+            refused += 1
+            if Date().timeIntervalSince(lastRefusalLogged) >= 60 {   // at most once a minute
+                diagnosticsLog("BROWSER bridge: refused \(refused) connection(s) from another program")
+                refused = 0; lastRefusalLogged = Date()
+            }
+            return
         }
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         var nosig: Int32 = 1

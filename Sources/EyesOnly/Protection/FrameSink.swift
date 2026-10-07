@@ -19,8 +19,23 @@ final class FrameSink: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func takeDroppedCount() -> Int { lock.lock(); defer { lock.unlock() }; let d = dropped; dropped = 0; return d }
 
+    /// Frames ScreenCaptureKit sent that weren't complete pictures, by status (idle, blank, suspended…), since
+    /// the last call. They're skipped; counted so a stream that keeps sending only those shows in the log.
+    private var skipped: [String: Int] = [:]
+    func takeSkippedCounts() -> String {
+        lock.lock(); defer { lock.unlock() }
+        let s = skipped.sorted { $0.key < $1.key }.map { "\($0.value) \($0.key)" }.joined(separator: ", ")
+        skipped = [:]
+        return s
+    }
+
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen, let frame = FrameSink.make(sampleBuffer) else { return }
+        guard type == .screen else { return }
+        guard let frame = FrameSink.make(sampleBuffer) else {
+            let name = FrameSink.statusName(sampleBuffer)
+            lock.lock(); skipped[name, default: 0] += 1; lock.unlock()
+            return
+        }
         lock.lock()
         if pending != nil { dropped += 1 }
         pending = frame
@@ -35,6 +50,20 @@ final class FrameSink: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) { onStop(stream, error) }
+
+    static func statusName(_ sb: CMSampleBuffer) -> String {
+        guard let arr = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+              let raw = arr.first?[.status] as? Int, let status = SCFrameStatus(rawValue: raw) else { return "no status" }
+        switch status {
+        case .complete: return "complete but unreadable"
+        case .idle: return "idle"
+        case .blank: return "blank"
+        case .suspended: return "suspended"
+        case .started: return "started"
+        case .stopped: return "stopped"
+        @unknown default: return "status \(raw)"
+        }
+    }
 
     static func make(_ sb: CMSampleBuffer) -> CapturedFrame? {
         guard sb.isValid,

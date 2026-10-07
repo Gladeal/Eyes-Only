@@ -28,6 +28,12 @@ extension Controller {
         button.image = NSImage(systemSymbolName: n > 0 ? "eye.slash.fill" : "eye", accessibilityDescription: "Eyes Only")
         button.image?.isTemplate = true
         button.title = n > 0 ? " \(n)" : ""
+        #if !SHIP
+        // Development build: marked in the menu bar, so it's never mistaken for the shared one.
+        button.attributedTitle = NSAttributedString(string: " DEV" + button.title, attributes: [
+            .font: NSFont.systemFont(ofSize: 10, weight: .bold), .foregroundColor: NSColor.systemOrange,
+            .baselineOffset: 1])
+        #endif
         button.imagePosition = .imageLeading
         button.toolTip = n > 0 ? protectedSummary : "Eyes Only — nothing protected"
     }
@@ -54,6 +60,11 @@ extension Controller {
 
     func rebuildMenu() {
         menu.removeAllItems()
+        #if !SHIP
+        let build = NSMenuItem(title: "Development build · \(Self.buildDate)", action: nil, keyEquivalent: "")
+        build.isEnabled = false
+        menu.addItem(build)
+        #endif
         let header = NSMenuItem(title: protectedSummary, action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
@@ -123,6 +134,16 @@ extension Controller {
         quit.image = symbol("xmark.rectangle")   // the symbol macOS gives Quit
         menu.addItem(quit)
     }
+
+    #if !SHIP
+    /// When this build was made (the build number is its date and time: yyyyMMddHHmm).
+    static let buildDate: String = {
+        let raw = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let parse = DateFormatter(); parse.dateFormat = "yyyyMMddHHmm"
+        guard let date = parse.date(from: raw) else { return raw }
+        return "built " + date.formatted(date: .abbreviated, time: .shortened)
+    }()
+    #endif
 
     func symbol(_ name: String) -> NSImage? { NSImage(systemSymbolName: name, accessibilityDescription: nil) }
 

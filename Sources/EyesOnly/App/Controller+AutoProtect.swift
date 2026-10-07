@@ -14,6 +14,7 @@ extension Controller {
             let pids = Set(NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == id }.map(\.processIdentifier))
             for (wid, s) in sessions where s.autoApp && pids.contains(s.targetPID) { s.stop(); sessions[wid] = nil }
             sessionsChanged()
+            reconcileTabs()   // a browser's protected tabs and sites need their own covers again
         }
         Settings.apps = Array(autoApps).sorted()
         recomputeAutoPIDs()
@@ -51,7 +52,18 @@ extension Controller {
         for w in list {
             guard pids.contains(w.pid), w.layer == 0, w.alpha > 0, w.bounds.width >= 120, w.bounds.height >= 80 else { continue }
             let id = w.id
-            guard sessions[id] == nil, !autoDismissed.contains(id), !pendingAutoWindows.contains(id) else { continue }
+            guard !autoDismissed.contains(id), !pendingAutoWindows.contains(id) else { continue }
+            if let s = sessions[id] {
+                // A browser window covered for one of its tabs: the whole window is protected now, whatever tab is active.
+                if s.tabDriven {
+                    s.tabDriven = false; s.autoApp = true
+                    pauseWork.removeValue(forKey: id)?.cancel()
+                    s.setSuspended(false)
+                    s.log("AUTO tab cover → whole window (always-protected app)")
+                    sessionsChanged()
+                }
+                continue
+            }
             startAutoSession(id)
         }
     }

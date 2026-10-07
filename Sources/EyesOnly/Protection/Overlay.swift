@@ -102,7 +102,6 @@ final class Overlay {
         layoutMirror()
         CATransaction.commit()
         applyRadius()
-        if mainHoles { applyProxyHoles() }
     }
 
     private func layoutMirror() {
@@ -162,68 +161,22 @@ final class Overlay {
         CATransaction.commit()
     }
 
-    /// Cover Stage Manager's preview of the window (nil hides): black for captures, the live copy scaled
-    /// into it locally. On the overlay's display (the strip always is).
-    /// Parts of the thumbnail cover that windows above the thumbnail hide anyway (Cocoa global rects, corner
-    /// radius). The cover floats above everything; without these holes it showed on top of those windows.
-    struct Hole: Equatable { let rect: NSRect; let radius: CGFloat }
-    private(set) var proxyHoles: [Hole] = []
-    /// The main cover gets the same holes while it's showing the window as a strip thumbnail (macOS reports
-    /// the window itself at the thumbnail, so its cover sits right there too, black locally).
-    private(set) var mainHoles = false
-    private let proxyMask = CAShapeLayer(), backingHoleMask = CAShapeLayer(), mirrorHoleMask = CAShapeLayer()
-
-    func setProxyHoles(_ holes: [Hole], includingMainCover main: Bool) {
-        guard holes != proxyHoles || main != mainHoles else { return }
-        proxyHoles = holes
-        mainHoles = main
-        applyProxyHoles()
-    }
-
-    /// A mask for a layer covering `box` (Cocoa global): everything but the holes.
-    private func holeMask(_ mask: CAShapeLayer, box: NSRect) -> CAShapeLayer {
-        let path = CGMutablePath()
-        path.addRect(CGRect(origin: .zero, size: box.size))
-        for h in proxyHoles where h.rect.intersects(box) {
-            let r = h.rect.offsetBy(dx: -box.minX, dy: -box.minY)
-            let c = min(h.radius, r.width / 2, r.height / 2)
-            path.addRoundedRect(in: r, cornerWidth: c, cornerHeight: c)
-        }
-        mask.frame = CGRect(origin: .zero, size: box.size)
-        mask.fillRule = .evenOdd
-        mask.fillColor = NSColor.black.cgColor
-        mask.path = path
-        mask.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull(), "frame": NSNull()]
-        return mask
-    }
-
-    private func applyProxyHoles() {
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-        if let f = proxyFrame, !proxyHoles.isEmpty { proxyShape.mask = holeMask(proxyMask, box: f) } else { proxyShape.mask = nil }
-        if mainHoles, !proxyHoles.isEmpty, proxyHoles.contains(where: { $0.rect.intersects(frame) }) {
-            backingShape.mask = holeMask(backingHoleMask, box: frame)
-            mirrorClip.mask = holeMask(mirrorHoleMask, box: frame)
-        } else {
-            backingShape.mask = nil; mirrorClip.mask = nil
-        }
-    }
-
+    /// Cover Stage Manager's preview of the window (nil hides): black for captures; with live previews, the
+    /// screen feed's picture of it on top, locally (setProxyCopy).
     func placeProxy(_ f: NSRect?) {
         guard f != proxyFrame else { return }
         proxyFrame = f
-        defer { applyProxyHoles() }   // holes are relative to the cover
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if let f {
             proxyShape.frame = f.offsetBy(dx: -screenFrame.minX + 1, dy: -screenFrame.minY + 1)
             let r = naturalWidth > 0 ? (radiusPoints * min(1, f.width / naturalWidth)).rounded(.up) : 0
             proxyShape.cornerRadius = r
-            // Preview cover is solid BLACK on screen and in captures (thumbnail — no live copy).
             proxyShape.isHidden = false
         } else {
             proxyShape.isHidden = true
         }
         CATransaction.commit()
+        if f == nil, proxyCopyShown { setProxyCopy(nil) }
     }
 
 
@@ -302,6 +255,42 @@ final class Overlay {
         mirrorClip.backgroundColor = color
         mirrorClip.cornerRadius = backingShape.cornerRadius
         CATransaction.commit()
+    }
+
+    /// false: square copy (a screen-feed frame already shows the screen's own corners there). true: back to the
+    /// cover's corner, which shrinks with the window — the full-size one left black showing on a small tile.
+    func setCopyRounded(_ rounded: Bool) {
+        let r = rounded ? backingShape.cornerRadius : 0
+        guard mirrorClip.cornerRadius != r else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        mirrorClip.cornerRadius = r
+        CATransaction.commit()
+    }
+
+    // Live previews: the copy over Stage Manager's thumbnail surface, from the screen feed.
+    private let proxyCopyClip = CALayer(), proxyCopy = CALayer()
+    var proxyCopyShown: Bool { !proxyCopyClip.isHidden }
+
+    /// Show `crop` (pixels, top-left origin) of a screen frame over the thumbnail cover; nil hides it.
+    func setProxyCopy(_ surface: IOSurface?, crop: CGRect = .zero, bufferWidth: Int = 0, bufferHeight: Int = 0) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        if proxyCopyClip.superlayer == nil {
+            proxyCopyClip.masksToBounds = true
+            proxyCopyClip.actions = ["bounds": NSNull(), "position": NSNull(), "frame": NSNull(), "hidden": NSNull()]
+            proxyCopy.actions = ["bounds": NSNull(), "position": NSNull(), "frame": NSNull(), "contents": NSNull()]
+            proxyCopy.contentsGravity = .resize
+            proxyCopyClip.addSublayer(proxyCopy)
+            mirror.contentView?.layer?.addSublayer(proxyCopyClip)
+        }
+        guard let surface, let f = proxyFrame, crop.width > 0, crop.height > 0 else { proxyCopyClip.isHidden = true; return }
+        proxyCopyClip.frame = f.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
+        proxyCopy.contents = surface
+        let b = proxyCopyClip.bounds
+        let sx = b.width / crop.width, sy = b.height / crop.height
+        proxyCopy.frame = CGRect(x: -crop.minX * sx, y: b.height - CGFloat(bufferHeight) * sy + crop.minY * sy,
+                                 width: CGFloat(bufferWidth) * sx, height: CGFloat(bufferHeight) * sy)
+        proxyCopyClip.isHidden = false
     }
 
     func close() { hide(); mirror.close(); backing.close() }

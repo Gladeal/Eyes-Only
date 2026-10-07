@@ -50,7 +50,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHumanReadableCopyright</key><string>© 2026 Eyes Only</string>
   <key>LSUIElement</key><true/>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.1</string>
   <key>CFBundleVersion</key><string>$(date +%Y%m%d%H%M)</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>NSHighResolutionCapable</key><true/>

@@ -8,10 +8,11 @@ enum Settings {
         get { UserDefaults.standard.stringArray(forKey: sitesKey) ?? [] }
         set { UserDefaults.standard.set(newValue, forKey: sitesKey) }
     }
-    /// Windows above a Stage Manager thumbnail cut through its cover. Off by default.
-    static var thumbnailCutouts: Bool {
-        get { UserDefaults.standard.bool(forKey: "thumbnailCutouts") }
-        set { UserDefaults.standard.set(newValue, forKey: "thumbnailCutouts") }
+    /// Stage Manager thumbnails and Mission Control tiles look normal locally (from a screen capture), black in
+    /// captures. On by default.
+    static var livePreviews: Bool {
+        get { UserDefaults.standard.object(forKey: "livePreviews") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "livePreviews") }
     }
     /// Browser windows are captured only while their protected tab is the active one (not paused). On by default.
     static var captureOnlyActiveTab: Bool {
@@ -29,7 +30,7 @@ enum Settings {
         let defaults = UserDefaults.standard
         guard !defaults.bool(forKey: "migratedOldSettings"),
               let old = UserDefaults(suiteName: "com.screenprivacy.mirror.menubar") else { return }
-        for key in [sitesKey, appsKey, "thumbnailCutouts", "captureOnlyActiveTab", "diagnostics", "dontOfferMoveToApplications"]
+        for key in [sitesKey, appsKey, "captureOnlyActiveTab", "diagnostics", "dontOfferMoveToApplications"]
             where defaults.object(forKey: key) == nil {
             if let value = old.object(forKey: key) { defaults.set(value, forKey: key) }
         }

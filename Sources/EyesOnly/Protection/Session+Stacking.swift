@@ -19,7 +19,7 @@ extension Session {
         if !wantDirectlyAbove {
             guard !o.keepOnTop else { return }
             if o.stackState(above: id, targetPID: targetPID).exposed {
-                exposures += 1
+                noteExposure()
                 log("EXPOSED: protected window rose above the black box (≤ one check, ~16 ms) before keep-on-top took over (exposure #\(exposures))")
             }
             exposedSince = 0
@@ -133,42 +133,6 @@ extension Session {
         }
     }
 
-    /// Windows above this window's strip thumbnail are cut out of its cover: the cover floats (macOS won't keep
-    /// it placed among Stage Manager's windows), and would otherwise sit on top of them. Only where the cut
-    /// is safe for captures — what shows through must really be hiding the thumbnail there:
-    ///  - real windows (larger than any strip thumbnail on a side) and Stage Manager's app icons; not the thumbnail-sized,
-    ///    invisible windows apps keep parked in the strip;
-    ///  - not while the strip slides in over a full-screen app (reported positions ≠ drawn ones), not in
-    ///    Mission Control.
-    func updateProxyHoles(_ o: Overlay, _ list: [WindowInfo]) {
-        guard let owner, owner.thumbnailCutouts, let cover = o.proxyFrame, let thumb = previewWindowID, !owner.missionControlOpen, owner.stripSlide() == 0,
-              let ti = list.firstIndex(where: { $0.id == thumb }) else {
-            o.setProxyHoles([], includingMainCover: false); return
-        }
-        var holes: [Overlay.Hole] = []
-        for w in list[..<ti] {   // front to back: everything before the thumbnail is above it
-            guard !owner.ourWindowNumbers.contains(Int(w.id)), w.layer == 0, w.alpha > 0.9 else { continue }
-            let b = w.bounds, r = cocoaRect(b)
-            guard r.intersects(cover) else { continue }
-            if w.owner == "WindowManager" {
-                guard b.width >= 32, b.width <= 128, abs(b.width - b.height) < 2 else { continue }   // an app icon
-                // The icon window is 64 pt, but the icon in it is only ~38 pt (drawn at 48 pt, and macOS icons
-                // keep a transparent margin inside that). Cut just the visible icon — a little inside it — so
-                // nothing of the thumbnail shows around it.
-                let icon = r.insetBy(dx: r.width * 0.21, dy: r.height * 0.21)
-                holes.append(.init(rect: icon, radius: icon.width * 0.225))
-            } else if b.width > Controller.stripThumbnailMax || b.height > Controller.stripThumbnailMax {
-                // Rounded generously: the hole's corners must stay inside the window's own rounded corners.
-                holes.append(.init(rect: r, radius: 26))
-            }
-        }
-        if holes != o.proxyHoles, !holes.isEmpty || !o.proxyHoles.isEmpty {
-            logDetail("PROXY holes: \(holes.count) (\(holes.map { "\(Int($0.rect.width))×\(Int($0.rect.height))" }.joined(separator: ", ")))")
-        }
-        // The main cover shows a thumbnail (black locally, no live copy) — cut it the same way.
-        o.setProxyHoles(holes, includingMainCover: !o.copyVisible || o.mainHidden)
-    }
-
     /// Safety net: the black backing must really be on screen whenever the window is protected.
     func ensureCoverOnScreen(_ o: Overlay, _ list: [WindowInfo]) {
         // From the tick's own (on-screen) window list — no extra WindowServer round trip.
@@ -186,9 +150,52 @@ extension Session {
         log("COVER missing (black window not on screen; profile \(profile.rawValue)) → restored on top")
     }
 
+    /// The protected app just became active, so macOS has raised its windows — float the cover now instead of
+    /// at the next check (waiting for it let the window show above its cover on most switches). Checks for an
+    /// exposure first, like the tick would.
+    func appActivated() {
+        let o = overlay
+        guard running, !keepOnTop, o.visible, !o.keepOnTop else { return }
+        if o.stackState(above: windowID, targetPID: targetPID).exposed {
+            noteExposure()
+            log("EXPOSED: protected window rose above the black box before the activation reaction (exposure #\(exposures))")
+        }
+        exposedSince = 0
+        stackFallbackUntil = Date().addingTimeInterval(1)   // the tick still sees the old profile for a moment
+        o.keepOnTop = true
+        o.backing.orderFrontRegardless(); o.mirror.orderFrontRegardless()
+        logDetail("STACK keep on top (app activated — immediate)")
+    }
+
+    #if !SHIP
+    /// Development builds (testing): the active Space changed. If the window is on screen here, put its cover
+    /// up now, floating, instead of at the next check. Logs which came first — the window or the announcement.
+    func spaceChanged() {
+        let o = overlay
+        guard running, !suspended, let state = windowInfo(windowID) else { return }
+        let coverAgo = o.visible ? String(format: "cover already up for %.0f ms", Date().timeIntervalSince(shownAt) * 1000) : "cover not up"
+        guard state.onScreen else { logDetail("SPACE switched: window not on this Space (\(coverAgo))"); return }
+        if !o.visible {
+            noteExposure()
+            log("EXPOSED: window on screen before its cover at the Space switch announcement (exposure #\(exposures))")
+        }
+        logDetail("SPACE switched: window on screen, \(coverAgo) → cover up at once, floating")
+        if !keepOnTop { stackFallbackUntil = Date().addingTimeInterval(1); o.keepOnTop = true }
+        o.place(cocoaRect(state.bounds))
+        if o.visible { o.backing.orderFrontRegardless(); o.mirror.orderFrontRegardless() } else { o.show(above: windowID); shownAt = Date() }
+    }
+    #endif
+
+    private func noteExposure() {
+        exposures += 1
+        #if !SHIP
+        NSSound(named: "Tink")?.play()   // development builds: hear the moment it happens
+        #endif
+    }
+
     func logExposureIfAny() {
         guard exposedSince != 0 else { return }
-        exposures += 1
+        noteExposure()
         log(String(format: "EXPOSED: protected window was above the black box for ≥ %.1f ms (exposure #%d)",
                    machMilliseconds(mach_absolute_time() - exposedSince), exposures))
         exposedSince = 0

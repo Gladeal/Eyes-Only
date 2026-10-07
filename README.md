@@ -29,12 +29,13 @@ Useful when you share or record your screen and don't want a chat, an inbox, a d
 - **Protect apps** — every window of a chosen app, automatically, whenever it opens (Settings → Apps).
 - **Protect tabs and sites** in Chrome, Edge, Brave, Arc, Vivaldi and Chromium — tick a tab in the menu, or add a site (`mail.google.com`, `example.com/path`) to protect every tab showing it. Needs the small extension in [`BrowserExtension/`](BrowserExtension). Safari isn't supported.
 - **Pause / resume** automatic protection, **Stop All** for the ones you ticked.
-- **Stage Manager**, Mission Control, full-screen Spaces and window snapping are handled; strip thumbnails of protected windows are covered too.
+- **Stage Manager**, Mission Control, full-screen Spaces and window snapping are handled; in captures, a protected window's Stage Manager thumbnail and Mission Control tile are black too.
+- **Live previews** (on by default): to you, a protected window's Stage Manager thumbnail, Mission Control tile and their animations look normal; captures still show them black. Costs some CPU while a protected window is in the strip or Mission Control is open — turn it off in Settings → General.
 - **Open at login**, and an optional detailed diagnostics log for troubleshooting.
 
 ## Install
 
-Download the latest `Eyes-Only.dmg`, open it and drag **Eyes Only** onto **Applications**. Then:
+Download the latest `Eyes-Only.dmg` from [Releases](https://github.com/Gladeal/Eyes-Only/releases/latest), open it and drag **Eyes Only** onto **Applications**. Then:
 
 1. Open it from Applications. The app isn't notarized by Apple yet, so the first time: **right-click → Open**, then **Open**.
 2. Allow **Screen Recording** when macOS asks (System Settings → Privacy & Security → Screen & System Audio Recording), then quit and reopen the app.
@@ -54,7 +55,7 @@ Eyes Only uses only public macOS APIs.
 ## Privacy and security
 
 - **No network access.** The app and the extension never send or receive anything over the network.
-- **Nothing on your screen is stored.** Captured frames live in memory only, to draw the live copy.
+- **Nothing on your screen is stored.** Captured frames live in memory only, to draw the live copy. For live previews and Stage Manager / Mission Control animations, the app also captures the display itself (without its own windows) while a protected window is in the strip, animating, or Mission Control is open — same rule: memory only, never saved or sent.
 - **Settings stay local** (macOS user defaults): your protected apps and sites, and a few switches.
 - **The log** (`~/Library/Logs/Eyes Only/`) has app names, window sizes and events — never window titles, web addresses or screen content — and stays on your Mac unless you send it to someone.
 - **The browser link** accepts only the app's own relay; other programs are refused. The extension only talks to the app on the same Mac; it sees incognito tabs only if you allow it.
@@ -92,7 +93,7 @@ It's a Swift package (`Package.swift`), so `swift build` and opening the folder 
 
 - **`EyesOnlyApp`** starts the menu-bar app — or, when a browser starts the executable as its messaging host, just relays the extension's messages (`Browser/NativeHost.swift`).
 - **`Controller`** is the app: the menu, the browser link, always-protected apps, and one `Session` per protected window. It runs a single shared **tick** — at the display's refresh rate while anything can be moving, 10 times a second otherwise. Each tick reads the system's window list once (`WindowInfo`) and hands it to every session.
-- **`Session`** protects one window. Its `Overlay` holds the two cover windows (the capturable black one, and the live copy that captures leave out). Its ScreenCaptureKit stream delivers frames through `FrameSink` to `receive`, which draws them; `tick` keeps the covers on the window — position, stacking, Stage Manager and Mission Control. The capture slows down when the window can't be seen at full size, and restarts itself if it stalls.
+- **`Session`** protects one window. Its `Overlay` holds the two cover windows (the capturable black one, and the live copy that captures leave out). Its ScreenCaptureKit stream delivers frames through `FrameSink` to `receive`, which draws them; `tick` keeps the covers on the window — position, stacking, Stage Manager and Mission Control. The capture slows down when the window can't be seen at full size, and restarts itself if it stalls. While the window is in the Stage Manager strip, animating, or Mission Control is open, a capture of the display (`Session+ScreenFeed`) supplies the copy instead — macOS draws those states itself, so only the screen has them.
 - **Browser tabs:** the extension reports windows and tabs → the relay → `BrowserBridge` → `Controller+Tabs`, which decides which browser windows need a cover right now and starts or pauses their sessions.
 - **Settings** are a few `UserDefaults` keys (`Settings`). The Settings window's panes talk to the controller through closures.
 - **Logging:** `log` for events (always written), `logDetail` for detail that's only written with detailed diagnostics on. Never window titles, web addresses or screen content.
@@ -104,9 +105,9 @@ The browser extension's ID is fixed by the public key in its manifest; the match
 - Window-specific captures aren't blocked (see the table above).
 - Safari isn't supported for tab protection.
 - DRM-protected video (e.g. some streaming sites) can appear black in the live copy too, because macOS won't let it be captured.
-- The black cover over a Stage Manager strip thumbnail floats above other windows; an experimental setting lets overlapping windows show through it.
+- The black cover over a Stage Manager strip thumbnail floats above other windows. With live previews you see those windows normally, but captures show the black cover over the part of them that overlaps the thumbnail.
 - Not yet signed and notarized by Apple, so macOS warns on first launch.
 
 ## License
 
-[GNU General Public License v3.0](LICENSE). You may use, study, change and share Eyes Only; versions you distribute must stay under the same license, with their source.
+[GNU Affero General Public License v3.0](LICENSE). You may use, study, change and share Eyes Only. Modified versions — whether you distribute them or let people use them over a network — must stay under the same license, with their source available to their users.

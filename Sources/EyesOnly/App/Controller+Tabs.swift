@@ -142,6 +142,8 @@ extension Controller {
             defer { pendingTabWindows.remove(id) }
             // No ScreenCaptureKit lookup first: the cover goes up immediately when a protected tab is active,
             // and the capture starts behind it.
+            // The window may have been protected as a whole while this was queued: one cover per window.
+            guard sessions[id] == nil else { return }
             let s = captureHandles.removeValue(forKey: id).map { Session(window: $0, owner: self) }
                 ?? Session(windowID: id, pid: browser?.pid ?? 0, name: "\(browser?.name ?? "Browser") — tab", owner: self)
             s.tabDriven = true
@@ -164,8 +166,12 @@ extension Controller {
             let parent = NSMenuItem(title: "\(c.name) tabs" + (count > 0 ? "  (\(count) protected)" : ""), action: nil, keyEquivalent: "")
             parent.image = appIcon(pid: c.pid)
             let sub = NSMenu()
+            sub.autoenablesItems = false
             for (i, w) in c.windows.enumerated() {
                 if i > 0 { sub.addItem(.separator()) }
+                // A window protected as a whole covers every tab: ticking single tabs there would change nothing.
+                let whole = tabWindowMap[BrowserKey(pid: c.pid, id: w.id)].flatMap { sessions[$0] }.map { !$0.tabDriven } == true
+                if whole { sub.addItem(withTitle: "Whole window protected — every tab is covered", action: nil, keyEquivalent: "").isEnabled = false }
                 for t in w.tabs {
                     var label = t.title.isEmpty ? t.url : t.title
                     if label.count > 60 { label = String(label.prefix(59)) + "…" }
@@ -176,6 +182,7 @@ extension Controller {
                     let rule = protectedTabs.contains(key) ? nil : siteRule(for: t)
                     if let rule { item.title = label + "   — site: \(rule)" }
                     item.state = tabProtected(c.pid, t) ? .on : .off
+                    if whole { item.isEnabled = false; sub.addItem(item); continue }
                     item.toolTip = rule == nil ? t.url : "\(t.url)\nProtected by the site rule “\(rule!)”. Edit it in Protected Sites…"
                     if rule == nil, let host = URLComponents(string: t.url)?.host, !host.isEmpty, t.url.hasPrefix("http") {
                         // ⌥: protect the whole site instead of just this tab
